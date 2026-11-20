@@ -83,6 +83,7 @@
       val.textContent = Math.round(shown) + "%";
       if (p<1) anim = requestAnimationFrame(step);
     })(start);
+    clearTimeout(window._fin); window._fin = setTimeout(()=>{ shown = v; val.textContent = v + "%"; }, dur + 100);
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
   }
   render();
