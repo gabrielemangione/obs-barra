@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Barra Percentuale – Overlay OBS</title>
+<style>
+  /* ===== PERSONALIZZAZIONE RAPIDA ===== */
+  :root{
+    --colore-barra: #e6007e;
+    --colore-barra-2: #ff5fb8;
+    --colore-fondo: rgba(0,0,0,.55);
+    --colore-testo: #ffffff;
+    --larghezza: 900px;
+    --altezza: 46px;
+    --raggio: 999px;
+    --font: "Montserrat","Segoe UI",Arial,sans-serif;
+  }
+  /* ==================================== */
+  html,body{margin:0;padding:0;background:transparent;overflow:hidden;font-family:var(--font);}
+  .wrap{position:absolute;left:40px;top:40px;width:var(--larghezza);
+        transition:opacity .5s ease, transform .5s ease;}
+  .wrap.nascosta{opacity:0;transform:translateY(-12px);}
+  .titolo{color:var(--colore-testo);font-weight:800;font-size:26px;letter-spacing:.5px;
+          text-transform:uppercase;margin:0 0 10px 6px;text-shadow:0 2px 6px rgba(0,0,0,.6);}
+  .titolo:empty{display:none;}
+  .barra{position:relative;height:var(--altezza);border-radius:var(--raggio);
+         background:var(--colore-fondo);overflow:hidden;
+         box-shadow:0 4px 18px rgba(0,0,0,.45), inset 0 0 0 2px rgba(255,255,255,.15);}
+  .riempimento{position:absolute;inset:0 auto 0 0;width:0%;border-radius:var(--raggio);
+         background:linear-gradient(90deg,var(--colore-barra),var(--colore-barra-2));
+         transition:width .9s cubic-bezier(.22,1,.36,1);}
+  .riempimento::after{content:"";position:absolute;inset:0;
+         background:linear-gradient(180deg,rgba(255,255,255,.35),rgba(255,255,255,0) 55%);}
+  .valore{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+         color:var(--colore-testo);font-weight:900;font-size:calc(var(--altezza)*.55);
+         text-shadow:0 2px 5px rgba(0,0,0,.7);font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body>
+  <div class="wrap" id="wrap">
+    <div class="titolo" id="titolo"></div>
+    <div class="barra">
+      <div class="riempimento" id="fill"></div>
+      <div class="valore" id="val">0%</div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function(){
+  // ===== COLLEGAMENTO (deve essere uguale nel telecomando) =====
+  const SUPABASE_URL = "https://uceotqmthcehvqxudsxn.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjZW90cW10aGNlaHZxeHVkc3huIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2NjM0NzAsImV4cCI6MjEwNjIzOTQ3MH0.AhPFtxWKfu8A0r-BLPQmG3d0DhGDtIj9qj7tfO3muoM";
+  const qs = new URLSearchParams(location.search);
+  const CANALE = qs.get("canale") || "barra-26a0e713d3a9df79";
+  // ============================================================
+
+  const root = document.documentElement.style;
+  if (qs.get("colore"))    { root.setProperty("--colore-barra", "#"+qs.get("colore")); root.setProperty("--colore-barra-2", "#"+qs.get("colore")); }
+  if (qs.get("colore2"))   root.setProperty("--colore-barra-2", "#"+qs.get("colore2"));
+  if (qs.get("larghezza")) root.setProperty("--larghezza", qs.get("larghezza")+"px");
+  if (qs.get("altezza"))   root.setProperty("--altezza", qs.get("altezza")+"px");
+
+  const wrap = document.getElementById("wrap"), fill = document.getElementById("fill"),
+        val = document.getElementById("val"), tit = document.getElementById("titolo");
+  const KEY = "obsBarra_" + CANALE;
+
+  let state = { v: 0, t: "", visibile: true };
+  try { Object.assign(state, JSON.parse(localStorage.getItem(KEY)) || {}); } catch(e){}
+
+  let shown = 0, anim;
+  function render(){
+    const v = Math.max(0, Math.min(100, Math.round(+state.v || 0)));
+    state.v = v;
+    fill.style.width = v + "%";
+    tit.textContent = state.t || "";
+    wrap.classList.toggle("nascosta", !state.visibile);
+    cancelAnimationFrame(anim);
+    const from = shown, start = performance.now(), dur = 900;
+    (function step(now){
+      const p = Math.min(1,(now-start)/dur), e = 1-Math.pow(1-p,3);
+      shown = from + (v-from)*e;
+      val.textContent = Math.round(shown) + "%";
+      if (p<1) anim = requestAnimationFrame(step);
+    })(start);
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){}
+  }
+  render();
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const ch = sb.channel(CANALE, { config: { broadcast: { self: false } } });
+  const invia = () => ch.send({ type: "broadcast", event: "stato", payload: state });
+
+  ch.on("broadcast", { event: "imposta" }, ({ payload }) => {
+      Object.assign(state, payload); render(); invia();
+    })
+    .on("broadcast", { event: "chiedi" }, () => invia())
+    .subscribe(s => { if (s === "SUBSCRIBED") invia(); });
+
+  // segnale di presenza ogni 10 s, così il telecomando sa che la barra è attiva
+  setInterval(invia, 10000);
+})();
+</script>
+</body>
+</html>

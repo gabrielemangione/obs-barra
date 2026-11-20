@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#111111">
+<title>Telecomando Barra</title>
+<style>
+  :root{ --accento:#e6007e; }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;background:#111;color:#fff;font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+       min-height:100vh;display:flex;flex-direction:column;padding:18px;gap:16px;user-select:none;}
+  header{display:flex;justify-content:space-between;align-items:center;}
+  h1{font-size:18px;margin:0;font-weight:700;}
+  .stato{font-size:13px;display:flex;align-items:center;gap:6px;opacity:.85;}
+  .led{width:10px;height:10px;border-radius:50%;background:#777;}
+  .led.ok{background:#2ecc71;box-shadow:0 0 8px #2ecc71;}
+  .led.attesa{background:#f1c40f;}
+  .led.ko{background:#e74c3c;}
+  .grande{font-size:72px;font-weight:900;text-align:center;font-variant-numeric:tabular-nums;line-height:1;}
+  .anteprima{height:22px;border-radius:999px;background:#2a2a2a;overflow:hidden;}
+  .anteprima div{height:100%;width:0;background:var(--accento);transition:width .4s;}
+  input[type=range]{width:100%;height:44px;accent-color:var(--accento);}
+  .griglia{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  button{font:inherit;font-size:20px;font-weight:700;border:0;border-radius:14px;padding:18px 0;
+         background:#2a2a2a;color:#fff;}
+  button:active{background:var(--accento);}
+  .riga{display:flex;gap:10px;}
+  .riga input{flex:1;font:inherit;font-size:18px;padding:14px;border-radius:12px;border:0;background:#fff;color:#000;min-width:0;}
+  .riga button{padding:14px 18px;font-size:16px;}
+  .invia{background:var(--accento);}
+  .toggle{width:100%;font-size:17px;}
+  .toggle.off{background:#5a1d1d;}
+  small{opacity:.5;text-align:center;}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Barra OBS</h1>
+    <div class="stato"><span class="led attesa" id="led"></span><span id="statoTxt">Connessione…</span></div>
+  </header>
+
+  <div class="grande" id="grande">0%</div>
+  <div class="anteprima"><div id="prev"></div></div>
+
+  <input type="range" id="slider" min="0" max="100" step="1" value="0">
+
+  <div class="griglia">
+    <button data-d="-10">−10</button>
+    <button data-d="-1">−1</button>
+    <button data-d="1">+1</button>
+    <button data-d="10">+10</button>
+    <button data-v="0">0</button>
+    <button data-v="25">25</button>
+    <button data-v="50">50</button>
+    <button data-v="100">100</button>
+  </div>
+
+  <div class="riga">
+    <input type="number" id="num" inputmode="numeric" min="0" max="100" placeholder="Valore esatto">
+    <button class="invia" id="setNum">Imposta</button>
+  </div>
+
+  <div class="riga">
+    <input type="text" id="tit" placeholder="Titolo (vuoto = nessuno)">
+    <button class="invia" id="setTit">OK</button>
+  </div>
+
+  <button class="toggle" id="toggle">Barra visibile in diretta</button>
+  <small>Le modifiche arrivano in OBS in tempo reale</small>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function(){
+  // ===== COLLEGAMENTO (deve essere uguale nella barra) =====
+  const SUPABASE_URL = "https://uceotqmthcehvqxudsxn.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjZW90cW10aGNlaHZxeHVkc3huIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2NjM0NzAsImV4cCI6MjEwNjIzOTQ3MH0.AhPFtxWKfu8A0r-BLPQmG3d0DhGDtIj9qj7tfO3muoM";
+  const qs = new URLSearchParams(location.search);
+  const CANALE = qs.get("canale") || "barra-26a0e713d3a9df79";
+  // ========================================================
+
+  const $ = id => document.getElementById(id);
+  const led = $("led"), statoTxt = $("statoTxt"), grande = $("grande"), prev = $("prev"),
+        slider = $("slider"), num = $("num"), tit = $("tit"), toggle = $("toggle");
+
+  let state = { v: 0, t: "", visibile: true }, ultimoSegnale = 0, connesso = false;
+
+  function mostra(){
+    grande.textContent = state.v + "%";
+    prev.style.width = state.v + "%";
+    slider.value = state.v;
+    if (document.activeElement !== tit) tit.value = state.t || "";
+    toggle.textContent = state.visibile ? "👁  Barra VISIBILE in diretta" : "🚫  Barra NASCOSTA";
+    toggle.classList.toggle("off", !state.visibile);
+  }
+  function aggiornaLed(){
+    const vivo = Date.now() - ultimoSegnale < 25000;
+    led.className = "led " + (!connesso ? "ko" : vivo ? "ok" : "attesa");
+    statoTxt.textContent = !connesso ? "Non connesso" : vivo ? "Barra online" : "In attesa di OBS…";
+  }
+  setInterval(aggiornaLed, 2000);
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const ch = sb.channel(CANALE, { config: { broadcast: { self: false } } });
+
+  function invia(parz){
+    Object.assign(state, parz);
+    state.v = Math.max(0, Math.min(100, Math.round(+state.v || 0)));
+    mostra();
+    ch.send({ type: "broadcast", event: "imposta", payload: parz });
+    if (navigator.vibrate) navigator.vibrate(15);
+  }
+
+  ch.on("broadcast", { event: "stato" }, ({ payload }) => {
+      ultimoSegnale = Date.now();
+      Object.assign(state, payload); mostra(); aggiornaLed();
+    })
+    .subscribe(s => {
+      connesso = (s === "SUBSCRIBED");
+      if (connesso) ch.send({ type: "broadcast", event: "chiedi", payload: {} });
+      aggiornaLed();
+    });
+
+  document.querySelectorAll("[data-d]").forEach(b => b.onclick = () => invia({ v: state.v + +b.dataset.d }));
+  document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => invia({ v: +b.dataset.v }));
+
+  // slider: anteprima mentre trascini, invio al rilascio
+  slider.oninput = () => { grande.textContent = slider.value + "%"; prev.style.width = slider.value + "%"; };
+  slider.onchange = () => invia({ v: +slider.value });
+
+  $("setNum").onclick = () => { if (num.value !== "") { invia({ v: +num.value }); num.value = ""; num.blur(); } };
+  num.addEventListener("keydown", e => { if (e.key === "Enter") $("setNum").click(); });
+  $("setTit").onclick = () => { invia({ t: tit.value }); tit.blur(); };
+  tit.addEventListener("keydown", e => { if (e.key === "Enter") $("setTit").click(); });
+  toggle.onclick = () => invia({ visibile: !state.visibile });
+
+  // quando torni sull'app dopo aver bloccato il telefono, riallinea lo stato
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && connesso) ch.send({ type: "broadcast", event: "chiedi", payload: {} });
+  });
+
+  mostra();
+})();
+</script>
+</body>
+</html>
